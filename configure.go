@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"robot/app/modules/errors"
 )
 
 // ConfigValueError describes a configuration that cannot be used to configure a target value
@@ -216,7 +217,7 @@ func (c *Config) configureMap(v, config reflect.Value, path string) error {
 // the "type" field name
 var typeKey = reflect.ValueOf("type")
 
-func (c *Config) configureStruct(v, config reflect.Value, path string) error {
+func (c *Config) configureStruct(v, config reflect.Value, path string) (err error) {
 	for _, k := range config.MapKeys() {
 		if k.String() == typeKey.String() {
 			continue
@@ -235,12 +236,11 @@ func (c *Config) configureStruct(v, config reflect.Value, path string) error {
 			}
 			field = field.Elem()
 		}
-		if err := c.configure(field, mapIndex(config, k), path); err != nil {
-			return err
+		if e := c.configure(field, mapIndex(config, k), path); e != nil {
+			err = errors.New(err.Error() + "|" + e.Error())
 		}
 	}
-
-	return nil
+	return err
 }
 
 func (c *Config) configureInterface(v, config reflect.Value, path string) error {
