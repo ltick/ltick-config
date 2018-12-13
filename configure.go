@@ -237,7 +237,11 @@ func (c *Config) configureStruct(v, config reflect.Value, path string) (err erro
 			field = field.Elem()
 		}
 		if e := c.configure(field, mapIndex(config, k), path); e != nil {
-			err = errors.New(err.Error() + "|" + e.Error())
+			if err != nil {
+				err = errors.New(err.Error() + "|" + e.Error())
+			} else {
+				err = e
+			}
 		}
 	}
 	return err
