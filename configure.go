@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"robot/app/modules/errors"
+	"errors"
 )
 
 // ConfigValueError describes a configuration that cannot be used to configure a target value
