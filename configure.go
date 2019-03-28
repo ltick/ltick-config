@@ -5,12 +5,13 @@
 package config
 
 import (
+	"encoding"
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
-	"errors"
 )
 
 // ConfigValueError describes a configuration that cannot be used to configure a target value
@@ -117,16 +118,22 @@ func (c *Config) Configure(v interface{}, path ...string) (err error) {
 
 // configure configures the value with the configuration.
 func (c *Config) configure(v, config reflect.Value, path string) error {
+	for config.Kind() == reflect.Interface || config.Kind() == reflect.Ptr {
+		config = config.Elem()
+	}
 	// get the concrete value, may allocate space if needed
-	v = indirect(v)
+	var u encoding.TextUnmarshaler
+	u, v = indirect(v, true)
+	if u != nil {
+		switch config.Kind() {
+		case reflect.String:
+			return u.UnmarshalText([]byte(config.String()))
+		}
+	}
 
 	if !v.IsValid() {
 		return nil
 	}
-	for config.Kind() == reflect.Interface || config.Kind() == reflect.Ptr {
-		config = config.Elem()
-	}
-
 	switch config.Kind() {
 	case reflect.Array, reflect.Slice:
 		return c.configureArray(v, config, path)
@@ -222,13 +229,13 @@ func (c *Config) configureStruct(v, config reflect.Value, path string) (err erro
 		if k.String() == typeKey.String() {
 			continue
 		}
-		path = path + "." + k.String()
+		rpath := path + "." + k.String()
 		field := v.FieldByName(k.Interface().(string))
 		if !field.IsValid() {
-			return &ConfigValueError{path, fmt.Sprintf("field %v not found in struct %v", k.String(), v.Type())}
+			return &ConfigValueError{rpath, fmt.Sprintf("field %v not found in struct %v", k.String(), v.Type())}
 		}
 		if !field.CanSet() {
-			return &ConfigValueError{path, fmt.Sprintf("field %v cannot be set", k.String())}
+			return &ConfigValueError{rpath, fmt.Sprintf("field %v cannot be set", k.String())}
 		}
 		if field.Kind() == reflect.Ptr {
 			if field.IsNil() {
@@ -236,7 +243,7 @@ func (c *Config) configureStruct(v, config reflect.Value, path string) (err erro
 			}
 			field = field.Elem()
 		}
-		if e := c.configure(field, mapIndex(config, k), path); e != nil {
+		if e := c.configure(field, mapIndex(config, k), rpath); e != nil {
 			if err != nil {
 				err = errors.New(err.Error() + "|" + e.Error())
 			} else {
@@ -269,7 +276,7 @@ func (c *Config) configureInterface(v, config reflect.Value, path string) error 
 
 	object := builder.Call([]reflect.Value{})[0]
 
-	s := indirect(object)
+	_, s := indirect(object, false)
 	if !s.Addr().Type().Implements(v.Type()) {
 		return &ConfigValueError{path, fmt.Sprintf("%v does not implement %v", s.Type(), v.Type())}
 	}
@@ -302,7 +309,7 @@ func (c *Config) configureScalar(v, config reflect.Value, path string) error {
 	return &ConfigValueError{path, fmt.Sprintf("%v cannot be used to configure %v", config.Type(), v.Type())}
 }
 
-func indirect(v reflect.Value) reflect.Value {
+func indirect(v reflect.Value, unmarshal bool) (encoding.TextUnmarshaler, reflect.Value) {
 	if v.Kind() != reflect.Ptr && v.Type().Name() != "" && v.CanAddr() {
 		v = v.Addr()
 	}
@@ -323,7 +330,14 @@ func indirect(v reflect.Value) reflect.Value {
 		if v.IsNil() {
 			v.Set(reflect.New(v.Type().Elem()))
 		}
+
+		if unmarshal && v.Type().NumMethod() > 0 {
+			if u, ok := v.Interface().(encoding.TextUnmarshaler); ok {
+				return u, reflect.Value{}
+			}
+		}
+
 		v = v.Elem()
 	}
-	return v
+	return nil, v
 }
